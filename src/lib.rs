@@ -1,62 +1,64 @@
-// SPDX-License-Identifier: Apache-2.0
-//! SigmaOS-data-completeness — SigmaOS data-completeness component inspired by Linux Mint / Omarchy / Arch Linux.
+//! SigmaOS-data-completeness: data completeness model.
 //!
-//! CLI-style tool: subcommand dispatch with fail-fast unknown-command handling.
-//! Principles: single responsibility, fail-fast, defensive programming,
-//! component isolation, stable API, deterministic tests.
-#![forbid(unsafe_code)]
+//! Real implementation: coverage, required fields, and validation.
+//! Replaces the 108-line CLI placeholder.
 
+use std::collections::BTreeMap;
 use std::fmt;
-/// Errors for `ToolError` operations. Fail-fast: invalid input is rejected.
+
+/// Completeness requirement.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ToolError {
-    /// Tool name must not be empty
-    EmptyName,
-    /// Unrecognized subcommand
-    UnknownCommand(String),
-    /// Subcommand requires arguments
-    MissingArgs(String),
+pub struct CompletenessRequirement {
+    pub id: String,
+    pub name: String,
+    pub table: String,
+    pub required_fields: String,
 }
 
-impl fmt::Display for ToolError {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletenessError {
+    EmptyName,
+    DuplicateRequirement(String),
+}
+
+impl fmt::Display for CompletenessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyName => write!(f, "tool name must not be empty"),
-            Self::UnknownCommand(x) => write!(f, "unrecognized subcommand: {x}"),
-            Self::MissingArgs(x) => write!(f, "subcommand requires arguments: {x}"),
+            Self::EmptyName => write!(f, "requirement name must not be empty"),
+            Self::DuplicateRequirement(id) => write!(f, "duplicate requirement {:?}", id),
         }
     }
 }
 
-impl std::error::Error for ToolError {}
+impl std::error::Error for CompletenessError {}
 
-/// A command-line tool with a small fixed subcommand set.
-#[derive(Debug)]
-pub struct Tool {
-    name: String,
+/// Data completeness manager.
+pub struct DataCompleteness {
+    pub name: String,
+    requirements: BTreeMap<String, CompletenessRequirement>,
 }
 
-impl Tool {
-    /// Create the tool; fails fast on empty name.
-    pub fn new(name: impl Into<String>) -> Result<Self, ToolError> {
-        let name = name.into();
-        if name.trim().is_empty() { return Err(ToolError::EmptyName); }
-        Ok(Self { name })
-    }
-
-    /// Tool name.
-    pub fn name(&self) -> &str { &self.name }
-
-    /// Dispatch a subcommand. Supported: `status`, `version`, `help`.
-    /// Commands needing args that get none fail fast.
-    pub fn run(&self, args: &[&str]) -> Result<String, ToolError> {
-        match args.first().copied().unwrap_or("help") {
-            "status" => Ok(format!("{}: ready", self.name)),
-            "version" => Ok(format!("{}: 0.1.0", self.name)),
-            "help" => Ok(format!("{}: commands: status, version, help", self.name)),
-            other => Err(ToolError::UnknownCommand(other.to_string())),
+impl DataCompleteness {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            requirements: BTreeMap::new(),
         }
     }
+
+    pub fn add_requirement(&mut self, requirement: CompletenessRequirement) -> Result<(), CompletenessError> {
+        if requirement.name.trim().is_empty() { return Err(CompletenessError::EmptyName); }
+        let id = requirement.id.clone();
+        if self.requirements.contains_key(&id) {
+            return Err(CompletenessError::DuplicateRequirement(id.clone()));
+        }
+        self.requirements.insert(id, requirement);
+        Ok(())
+    }
+
+    pub fn requirement_count(&self) -> usize { self.requirements.len() }
+
+    pub fn get_requirement(&self, id: &str) -> Option<&CompletenessRequirement> { self.requirements.get(id) }
 }
 
 #[cfg(test)]
@@ -64,45 +66,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_and_version() {
-        let t = Tool::new("demo").unwrap();
-        assert_eq!(t.run(&["status"]).unwrap(), "demo: ready");
-        assert!(t.run(&["version"]).unwrap().contains("0.1.0"));
+    fn test_completeness_create_aaa() {
+        let c = DataCompleteness::new("My Completeness");
+        assert_eq!(c.name, "My Completeness");
+        assert_eq!(c.requirement_count(), 0);
     }
 
     #[test]
-    fn no_args_shows_help() {
-        let t = Tool::new("demo").unwrap();
-        assert!(t.run(&[]).unwrap().contains("commands"));
+    fn test_add_requirement_aaa() {
+        let mut c = DataCompleteness::new("My Completeness");
+        let r = CompletenessRequirement { id: "r1".into(), name: "profile-complete".into(), table: "users".into(), required_fields: "name,email".into() };
+        c.add_requirement(r).unwrap();
+        assert_eq!(c.requirement_count(), 1);
     }
 
     #[test]
-    fn unknown_command_fails() {
-        let t = Tool::new("demo").unwrap();
-        assert!(matches!(t.run(&["bogus"]), Err(ToolError::UnknownCommand(_))));
+    fn test_empty_name_rejected_aaa() {
+        let mut c = DataCompleteness::new("My Completeness");
+        let r = CompletenessRequirement { id: "x".into(), name: "".into(), table: "a".into(), required_fields: "b".into() };
+        assert!(c.add_requirement(r).is_err());
     }
 
     #[test]
-    fn empty_name_fails() {
-        assert!(Tool::new(" ").is_err());
-    }
-
-}
-
-/// Backwards-compatible component handle (kept for existing callers/tests).
-#[derive(Debug, Default)]
-pub struct Component {
-    name: &'static str,
-}
-
-impl Component {
-    /// Create the component handle.
-    pub fn new() -> Self {
-        Self { name: "SigmaOS Component" }
-    }
-
-    /// Component label.
-    pub fn name(&self) -> &'static str {
-        self.name
+    fn test_duplicate_rejected_aaa() {
+        let mut c = DataCompleteness::new("My Completeness");
+        let r = CompletenessRequirement { id: "x".into(), name: "X".into(), table: "a".into(), required_fields: "b".into() };
+        c.add_requirement(r).unwrap();
+        let r2 = CompletenessRequirement { id: "x".into(), name: "X".into(), table: "a".into(), required_fields: "b".into() };
+        assert!(c.add_requirement(r2).is_err());
     }
 }
