@@ -1,16 +1,16 @@
 [component]
 name = "SigmaOS-data-completeness"
 tier = 2
-stability = "scaffold"
+stability = "beta"
 language = "rust"
-description = "GitHub description is a placeholder; component scope remains unclassified."
+description = "Data completeness checker with coverage requirements and field validation"
 upstream = []
 
 [contract]
-provides = ["component"]
+provides = ["data-completeness", "coverage-checking", "field-validation"]
 depends_on = []
 
 [maturity]
-status = "Scaffold"
-test_evidence = "Compiles and passes AAA unit tests"
-next_milestone = "Hardware and runtime integration"
+status = "Implemented"
+test_evidence = "cargo test --offline unit tests pass"
+next_milestone = "Database integration and automated completeness reports"
